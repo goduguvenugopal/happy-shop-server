@@ -1,98 +1,88 @@
-const express = require("express")
-const app = express()
-const cors = require("cors")
-const mongoose = require("mongoose")
-const passport = require("passport")
-const session = require("express-session")
-const oAuth2Startegy = require("passport-google-oauth2").Strategy;
-const User = require("./model/UserSchema")
+const express = require("express");
+const app = express();
+const cors = require("cors");
+const mongoose = require("mongoose");
+const passport = require("passport");
+const session = require("express-session");
+const MongoStore = require("connect-mongo");
+const oAuth2Strategy = require("passport-google-oauth2").Strategy;
+const User = require("./model/UserSchema");
 
+require("dotenv").config();
+app.use(express.json());
+app.use(cors({ origin: "*" }));
 
-require("dotenv").config()
-app.use(express.json())
-app.use(cors({origin:"*"}))
-
-mongoose.connect(process.env.MONGODB_URI).then(()=>{
+mongoose.connect(process.env.MONGODB_URI).then(() => {
     console.log("Mongodb is connected successfully");
-    
-})
-.catch((error)=>{
-    console.error("Error occured while connecting mongodb", error);
-    
-})
+}).catch((error) => {
+    console.error("Error occurred while connecting to MongoDB", error);
+});
 
-//  setup session 
+// Setup session with MongoDB store
 app.use(session({
-    secret : "4b6u543v4768gre654evbt34btsbyuk",
-    resave : false,
-    saveUninitialized : true
-}))
+    secret: "4b6u543v4768gre654evbt34btsbyuk",
+    resave: false,
+    saveUninitialized: false, // Better to set to false in production
+    store: MongoStore.create({
+        mongoUrl: process.env.MONGODB_URI,
+        collectionName: 'sessions' // Optional: specify collection name
+    })
+}));
 
-
-// setup passport 
-app.use(passport.initialize())
-app.use(passport.session())
-
+// Setup passport
+app.use(passport.initialize());
+app.use(passport.session());
 
 passport.use(
-    new  oAuth2Startegy({
-        clientID:process.env.CLIENT_ID,
-        clientSecret:process.env.CLIENT_SECRET,
-        callbackURL:"/auth/google/callback",
-        scope : ["profile" , "email"]
+    new oAuth2Strategy({
+        clientID: process.env.CLIENT_ID,
+        clientSecret: process.env.CLIENT_SECRET,
+        callbackURL: "/auth/google/callback",
+        scope: ["profile", "email"]
     },
-async (accessToken , refreshToken, profile, done) => {
-    try {
-        let user = await User.findOne({googleId : profile.id})
-        if(!user){
-            user = new User({
-                googleId: profile.id,
-                displayName: profile.displayName,
-                email: profile.emails && profile.emails[0] ? profile.emails[0].value : null,  // Check if emails exist
-                image: profile.photos && profile.photos[0] ? profile.photos[0].value : null   // Check if photos exist
-            });
-            
-
-            await user.save();
+    async (accessToken, refreshToken, profile, done) => {
+        try {
+            let user = await User.findOne({ googleId: profile.id });
+            if (!user) {
+                user = new User({
+                    googleId: profile.id,
+                    displayName: profile.displayName,
+                    email: profile.emails && profile.emails[0] ? profile.emails[0].value : null,
+                    image: profile.photos && profile.photos[0] ? profile.photos[0].value : null
+                });
+                await user.save();
+            }
+            return done(null, user);
+        } catch (error) {
+            return done(error, null);
         }
+    })
+);
 
-        return done(null , user)
-    } catch (error) {
-        return done(error , null)
-    }
-}
-)
-)
+passport.serializeUser((user, done) => {
+    done(null, user);
+});
 
+passport.deserializeUser((user, done) => {
+    done(null, user);
+});
 
-passport.serializeUser((user , done)=>{
-    done(null , user)
-})
-
-passport.deserializeUser((user , done)=>{
-    done(null , user)
-})
-
- 
 // Define routes for Google OAuth
 app.get(
     "/auth/google",
     passport.authenticate("google", { scope: ["profile", "email"] })
-  );
-  
-  app.get(
+);
+
+app.get(
     "/auth/google/callback",
     passport.authenticate("google", {
-      successRedirect: "/",
-      failureRedirect: "/login",
+        successRedirect: "/",
+        failureRedirect: "/login",
     })
-  );
-  
- 
-const port = process.env.PORT || 5000
+);
 
-app.listen(port ,()=>{
-    console.log(`server running on port number : ${port}`);
-    
+const port = process.env.PORT || 5000;
 
-})
+app.listen(port, () => {
+    console.log(`Server running on port number : ${port}`);
+});
